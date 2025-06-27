@@ -1,0 +1,104 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>KCPE 2011 Science Quiz</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f4f4; padding: 20px; }
+    .quiz-container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    .question { font-size: 18px; margin-bottom: 15px; }
+    .option { display: block; background: #eee; margin-bottom: 10px; padding: 10px; border-radius: 5px; cursor: pointer; }
+    .option:hover { background: #d0eaff; }
+    .result { font-size: 20px; text-align: center; margin-top: 20px; }
+    .leaderboard { margin-top: 30px; }
+    .leaderboard h3 { text-align: center; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <div class="quiz-container">
+    <div id="quiz"></div>
+    <div class="result" id="result"></div>
+    <div class="leaderboard" id="leaderboard"></div>
+  </div>
+
+  <script>
+    let current = 0;
+    let score = 0;
+    let questions = [];
+
+    function getScores() {
+      return JSON.parse(localStorage.getItem('scores') || '[]');
+    }
+
+    function saveScore(name, score) {
+      let scores = getScores();
+      scores.push({ name, score });
+      scores.sort((a, b) => b.score - a.score);
+      scores = scores.slice(0, 10); // keep top 10
+      localStorage.setItem('scores', JSON.stringify(scores));
+    }
+
+    function renderLeaderboard() {
+      const scores = getScores();
+      let html = '<h3>Leaderboard (Top 10)</h3>';
+      if (scores.length === 0) {
+        html += '<p>No scores yet. Be the first!</p>';
+      } else {
+        html += '<table><tr><th>#</th><th>Name</th><th>Score</th></tr>';
+        scores.forEach((s, idx) => {
+          html += `<tr><td>${idx + 1}</td><td>${s.name}</td><td>${s.score}</td></tr>`;
+        });
+        html += '</table>';
+      }
+      document.getElementById('leaderboard').innerHTML = html;
+    }
+
+    function finishQuiz() {
+      document.getElementById('quiz').innerHTML = '';
+      document.getElementById('result').innerText = `Quiz complete! Your score: ${score}/${questions.length}`;
+
+      let name = prompt('Enter your name for the leaderboard:');
+      if (!name) name = 'Anonymous';
+      saveScore(name, score);
+      renderLeaderboard();
+    }
+
+    async function loadQuiz() {
+      const res = await fetch('questions.json');
+      questions = await res.json();
+
+      function showQuestion() {
+        if (current >= questions.length) {
+          finishQuiz();
+          return;
+        }
+
+        const q = questions[current];
+        const container = document.getElementById('quiz');
+        container.innerHTML = `<div class="question">${current + 1}. ${q.question}</div>`;
+
+        q.options.forEach(opt => {
+          const btn = document.createElement('div');
+          btn.className = 'option';
+          btn.innerText = opt;
+          btn.onclick = () => {
+            if (opt === q.answer) score++;
+            current++;
+            showQuestion();
+          };
+          container.appendChild(btn);
+        });
+      }
+
+      renderLeaderboard();
+      showQuestion();
+    }
+
+    loadQuiz();
+  </script>
+</body>
+</html>
