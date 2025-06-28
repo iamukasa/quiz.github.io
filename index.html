@@ -7,6 +7,7 @@
   <style>
     body{font-family:Arial,Helvetica,sans-serif;background:#f4f4f4;margin:0;padding:20px}
     .quiz-container{max-width:720px;margin:auto;background:#fff;padding:20px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,.1)}
+    .top-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;font-size:18px}
     .question{font-size:18px;margin-bottom:16px}
     .diagram{max-width:100%;margin-bottom:16px;border:1px solid #ccc}
     .option{display:block;padding:10px;margin-bottom:10px;border-radius:6px;background:#eee;cursor:pointer}
@@ -16,10 +17,15 @@
     .leaderboard h3{text-align:center;margin:0 0 12px}
     table{width:100%;border-collapse:collapse}
     th,td{padding:8px;border-bottom:1px solid #ddd;text-align:left}
+    #timer{font-weight:bold}
   </style>
 </head>
 <body>
   <div class="quiz-container">
+    <div class="top-bar">
+      <span id="progress"></span>
+      <span id="timer"></span>
+    </div>
     <div id="quiz"></div>
     <div class="result" id="result"></div>
     <div class="leaderboard" id="leaderboard"></div>
@@ -27,69 +33,93 @@
 
   <script>
     let questions = [];
-    let leaderboard = [];
-    let current = 0;
-    let score   = 0;
+    let current   = 0;
+    let score     = 0;
 
-    /* ---------- leaderboard helpers ---------- */
-    async function loadLeaderboard() {
-      try {
-        const res = await fetch('leaderboard.json');
-        leaderboard = res.ok ? await res.json() : [];
-      } catch { leaderboard = []; }
+    const TOTAL_TIME = 30 * 60; // seconds
+    let timeLeft = TOTAL_TIME;
+    let timerId;
+
+    const LB_KEY = 'kcpe_science_lb';
+    function getLeaderboard() {
+      try { return JSON.parse(localStorage.getItem(LB_KEY)) || []; }
+      catch { return []; }
     }
-    function saveLeaderboard() {
-      leaderboard.sort((a,b)=>b.score-a.score);
-      leaderboard = leaderboard.slice(0,10);
-      const blob = new Blob([JSON.stringify(leaderboard, null, 2)],{type:'application/json'});
-      const url  = URL.createObjectURL(blob);
-      const link = Object.assign(document.createElement('a'),{href:url,download:'leaderboard.json'});
-      link.click();
-      URL.revokeObjectURL(url);
+    function saveLeaderboard(lb) {
+      localStorage.setItem(LB_KEY, JSON.stringify(lb));
     }
     function renderLeaderboard() {
+      const lb = getLeaderboard();
       let html = '<h3>Leaderboard (Top 10)</h3>';
-      if (!leaderboard.length) {
+      if (!lb.length) {
         html += '<p>No scores yet — be the first!</p>';
       } else {
-        html += '<table><tr><th>#</th><th>Name</th><th>Score</th></tr>';
-        leaderboard.forEach((e,i)=>{html += `<tr><td>${i+1}</td><td>${e.name}</td><td>${e.score}</td></tr>`});
+        html += '<table><tr><th>#</th><th>Name</th><th>Score</th><th>Time&nbsp;(mm:ss)</th></tr>';
+        lb.forEach((e, i) => {
+          html += `<tr><td>${i + 1}</td><td>${e.name}</td><td>${e.score}</td><td>${e.time}</td></tr>`;
+        });
         html += '</table>';
       }
       document.getElementById('leaderboard').innerHTML = html;
     }
 
-    /* ---------- quiz logic ---------- */
+    /** ---------- timer helpers ---------- */
+    function formatTime(secs) {
+      const m = String(Math.floor(secs / 60)).padStart(2, '0');
+      const s = String(secs % 60).padStart(2, '0');
+      return `${m}:${s}`;
+    }
+    function startTimer() {
+      document.getElementById('timer').textContent = `Time left: ${formatTime(timeLeft)}`;
+      timerId = setInterval(() => {
+        timeLeft--;
+        document.getElementById('timer').textContent = `Time left: ${formatTime(timeLeft)}`;
+        if (timeLeft <= 0) {
+          clearInterval(timerId);
+          finishQuiz();
+        }
+      }, 1000);
+    }
+
+    /** ---------- quiz flow ---------- */
     function finishQuiz() {
+      clearInterval(timerId);
       document.getElementById('quiz').innerHTML = '';
-      document.getElementById('result').textContent = `Quiz complete!  Your score: ${score}/${questions.length}`;
-      let name = prompt('Enter your name for the leaderboard:');
-      if(!name) name = 'Anonymous';
-      leaderboard.push({name,score});
-      saveLeaderboard();
+      document.getElementById('progress').textContent = '';
+      document.getElementById('result').textContent =
+        `Quiz complete! Your score: ${score}/${questions.length}`;
+
+      const name = prompt('Enter your name for the leaderboard:') || 'Anonymous';
+      const lb   = getLeaderboard();
+      lb.push({ name, score, time: formatTime(TOTAL_TIME - timeLeft) });
+      lb.sort((a, b) => b.score - a.score || a.time.localeCompare(b.time));
+      saveLeaderboard(lb.slice(0, 10));      // keep top 10
       renderLeaderboard();
     }
-    function showQuestion() {
-      if (current >= questions.length) { finishQuiz(); return; }
-      const q = questions[current];
-      let html = `<div class="question">${current+1}. ${q.question}</div>`;
-      if (q.image) html += `<img src="${q.image}" alt="diagram" class="diagram">`;
-      const wrap = document.getElementById('quiz');
-      wrap.innerHTML = html;
+
+     function showQuestion(){
+      if(current>=questions.length){finishQuiz();return;}
+      const q=questions[current];
+      document.getElementById('progress').textContent='Question '+(current+1)+'/'+questions.length;
+      let html='<div class="question">'+q.question+'</div>';
+      if(q.image){ html+='<img src=\"'+q.image+'\" alt=\"diagram\" class=\"diagram\">'; }
+      const quiz=document.getElementById('quiz');
+      quiz.innerHTML=html;
       q.options.forEach(opt=>{
-        const btn = document.createElement('div');
-        btn.className = 'option';
-        btn.textContent = opt;
-        btn.onclick = () => { if (opt === q.answer) score++; current++; showQuestion(); };
-        wrap.appendChild(btn);
+        const btn=document.createElement('div');
+        btn.className='option';
+        btn.textContent=opt;
+        btn.onclick=()=>{if(opt===q.answer)score++; current++; showQuestion();};
+        quiz.appendChild(btn);
       });
     }
 
+    /** ---------- initialisation ---------- */
     async function init() {
-      [questions] = await Promise.all([fetch('questions.json').then(r=>r.json()), loadLeaderboard()]);
-      await loadLeaderboard();
+      questions = await fetch('questions.json').then(r => r.json());
       renderLeaderboard();
       showQuestion();
+      startTimer();
     }
     init();
   </script>
